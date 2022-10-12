@@ -5,11 +5,11 @@ from py_vollib.black_scholes import black_scholes as bs
 from py_vollib.black_scholes.greeks.analytical import delta, gamma, vega, theta, rho
 
 #VARIABLES
-r = 0.01
-S = 30
-K = 40
-T = 240/365
-sigma = 0.30
+r = 0.01            # risk free interest rate
+S = 200             # Current stock price
+K = 155             # Strike price
+T = 240/365         # time to maturity
+sigma = 0.30        # volatility
 
 #BLACKSCHOLES
 def blackScholes(r, S, K, T, sigma, type="C"):
