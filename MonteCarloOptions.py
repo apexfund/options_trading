@@ -1,10 +1,12 @@
 import math
 import numpy as np
 import pandas as pd
+import yfinance as yf
 import datetime
 import scipy.stats as stats
 import matplotlib.pyplot as plt
 from pandas_datareader import data as pdr
+import pandas_datareader.data as web
 
 def monteCarlo(S, K, vol, r, N, M, market_value, T):
     
@@ -35,6 +37,8 @@ def monteCarlo(S, K, vol, r, N, M, market_value, T):
 
     print("Call value is ${0} with SE +/- {1}".format(np.round(C0,2), np.round(SE, 2)))
 
+
+    # visualization
     x1 = np.linspace(C0-3*SE, C0-1*SE, 100)
     x2 = np.linspace(C0-1*SE, C0+1*SE, 100)
     x3 = np.linspace(C0+1*SE, C0+3*SE, 100)
@@ -53,19 +57,48 @@ def monteCarlo(S, K, vol, r, N, M, market_value, T):
     plt.legend()
     plt.show()
 
-# Option Metrics
+# Option Data
+def options_chain(symbol):
 
-S = 138.34  # stock price
-K = 135 # strike price
-vol = 0.5154 # implied volatility
+    tk = yf.Ticker(symbol)
+    # Expiration dates
+    exps = tk.options
+
+    # Get options for each expiration
+    options = pd.DataFrame()
+    for e in exps:
+        opt = tk.option_chain(e)
+        opt = pd.DataFrame().append(opt.calls).append(opt.puts)
+        opt['expirationDate'] = e
+        options = options.append(opt, ignore_index=True)
+    
+    # Boolean column if the option is a CALL
+    options['CALL'] = options['contractSymbol'].str[4:].apply(
+        lambda x: "C" in x)
+    
+    options[['bid', 'ask', 'strike']] = options[['bid', 'ask', 'strike']].apply(pd.to_numeric)
+    options['mark'] = (options['bid'] + options['ask']) / 2 # Calculate the midpoint of the bid-ask
+    
+    # Drop unnecessary and meaningless columns
+    options = options.drop(columns = ['contractSize', 'currency', 'change', 'percentChange', 
+    'lastTradeDate', 'lastPrice', 'inTheMoney','openInterest','volume'])
+
+    return options
+
+
+ticker = input("Input a stock ticker: ")
+
+option_data = options_chain(ticker)
+print(option_data.head())
+df = yf.download(ticker)
+
+S = (df.tail())['Close'][4]  # stock price
+K = option_data.head()['strike'][0]  # strike price
+vol = option_data.head()['impliedVolatility'][0] # implied volatility
 r = 0.01 # risk free return rate
 N = 10 # number of time steps
 M = 1000 # number of simulations
-market_value = 7.77 # market price for option
-T = ((datetime.date(2022,10,28)-datetime.date.today()).days+1)/365 # Time calculation from now to option expiration
+market_value = option_data.head()['mark'][0] # market price for option
 
-
-
-
+T = ((datetime.date(2022,12,30)-datetime.date.today()).days+1)/365    
 monteCarlo(S, K, vol, r, N, M, market_value, T)
-
