@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 from pandas_datareader import data as pdr
 import pandas_datareader.data as web
 
-def monteCarlo(S, K, vol, r, N, M, market_value, T):
+def monteCarlo(S, K, vol, r, N, M, market_value, T, option_type):
     
     # Precompute constants
     dt = T/N
@@ -29,14 +29,21 @@ def monteCarlo(S, K, vol, r, N, M, market_value, T):
 
     # Compute expectation and SE
     ST = np.exp(lnSt)
-    CT = np.maximum(0, ST-K)
+    if option_type == "call":
+        CT = np.maximum(0, ST-K)
+    elif option_type == "put":
+        CT = np.maximum(0, K-ST)
+    else:
+        raise ValueError("Invalid option type: {}. Must be 'call' or 'put'.".format(option_type))
+        
     C0 = np.exp(-r*T)*np.sum(CT[-1])/M # take the final column, take its sum, and get the discounted payoff of the average
 
     sigma = np.sqrt(np.sum((CT[-1]-C0)**2) / (M-1))
     SE = sigma/np.sqrt(M)
+    std = np.sqrt(np.sum((CT[-1]-C0)**2) / (M-1))
 
-    print("Call value is ${0} with SE +/- {1}".format(np.round(C0,2), np.round(SE, 2)))
 
+    print("{} option value is ${} with SE +/- {}".format(option_type.capitalize(), np.round(C0,2), np.round(SE, 2)))
 
     # visualization
     x1 = np.linspace(C0-3*SE, C0-1*SE, 100)
@@ -87,10 +94,11 @@ def options_chain(symbol):
 
 
 ticker = input("Input a stock ticker: ")
-
+option_type = input("Is this a call or put? ")
+option_type = option_type.lower()
 option_data = options_chain(ticker)
-print(option_data.head())
 df = yf.download(ticker)
+print(option_data.head())
 
 S = (df.tail())['Close'][4]  # stock price
 K = option_data.head()['strike'][0]  # strike price
@@ -100,5 +108,5 @@ N = 10 # number of time steps
 M = 1000 # number of simulations
 market_value = option_data.head()['mark'][0] # market price for option
 
-T = ((datetime.date(2022,12,30)-datetime.date.today()).days+1)/365    
-monteCarlo(S, K, vol, r, N, M, market_value, T)
+T = ((datetime.date(2023,2,24)-datetime.date.today()).days+1)/365    
+monteCarlo(S, K, vol, r, N, M, market_value, T, option_type) 
