@@ -1,112 +1,128 @@
-from alpha_vantage.fundamentaldata import FundamentalData
-import requests
-import json
+import praw
+import nltk
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import pandas as pd
 import time
+
+def sentimentAnalysis(stocks):
+    import praw
+    import pandas as pd
+    import time
+    from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
+    # Set up PRAW
+    reddit = praw.Reddit(
+        user_agent="Comment Extraction",
+        client_id="k4XwIidw1oXBzfHstp2g7w",
+        client_secret="wdZOEnrmJhdefBnSTd2XgYyVRGo4lQ"
+    )
+
+    # Set up NLTK sentiment analyzer
+    sid = SentimentIntensityAnalyzer()
+
+    # Define subreddits
+    subreddits = ['EarningsWhispers', 'WallStreetBets', 'ThetaGang']
+
+    # Create dictionary of stock scores
+    stock_scores = {}
+    for stock in stocks:
+        sentiment_score = 0
+        mentions = 0
+
+        for subreddit in subreddits:
+            subreddit = reddit.subreddit(subreddit)
+            posts = subreddit.hot(limit=1000) # Get 1000 hottest posts from subreddit
+
+            for post in posts:
+                if post.created_utc < (time.time() - 604800): # Skip posts older than 1 week
+                    break
+
+                try:
+                    post_comments = post.comments.list()
+                except praw.exceptions.RedditAPIException:
+                    break
+                
+                for comment in post_comments:
+                    if isinstance(comment, praw.models.MoreComments):  # Skip MoreComments objects
+                        continue
+
+                    comment_text = comment.body.lower()
+
+                    # Check if comment contains the stock symbol
+                    if f" {stock.lower()} " in comment_text:
+                        # Analyze sentiment of comment
+                        comment_sentiment = sid.polarity_scores(comment_text)
+
+                        # Calculate score for stock
+                        stock_score = comment_sentiment['pos'] - comment_sentiment['neg']
+                        sentiment_score += stock_score
+                        mentions += 1
+
+        if mentions != 0:
+            stock_scores[stock] = sentiment_score / mentions
+        else:
+            stock_scores[stock] = 0
+
+    # Create pandas dataframe of top 10 stocks based on score
+    df = pd.DataFrame.from_dict(stock_scores, orient='index', columns=['Score']).sort_values('Score', ascending=False).head(10)
+
+    # Create bar chart visualization of top 10 stocks
+    ax = df.plot(kind='bar', title='Top 10 Stocks by Sentiment Score', legend=True)
+    ax.set_xlabel('Stock Symbol')
+    ax.set_ylabel('Sentiment Score')
+
+    return df
+
 import pandas as pd
 import yfinance as yf
-import pytz
 
-# Define the ticker symbol for the company you want to retrieve data for
-tickerSymbol = 'AAPL'
+import pandas as pd
+import yfinance as yf
 
-# Get the historical data for the last year
-historicalData = yf.download(tickerSymbol, period='1y', interval='1d')
+import pandas as pd
+import requests
 
-# Get the fundamental data for the company as of the last date
-tickerData = yf.Ticker(tickerSymbol, validate=False)
-fundamentalData = tickerData.history(start='2021/01/01', end='2022/01/01')
-
-# Convert the fundamental data to a pandas DataFrame
-fundamentalData = pd.DataFrame(fundamentalData)
-
-# Print the fundamental data
-print(fundamentalData.head())
-
-# def calc_row(overview_val, income_val, balance_val, cashflow_val):
-#     #Add Overview Values and reset index(its off for some reason)
-#     row_data = overview_val[['Symbol','Sector','PercentInsiders','PercentInstitutions','MarketCapitalization',
-#                              'RevenueTTM','ReturnOnAssetsTTM','EBITDA','ProfitMargin','OperatingMarginTTM',
-#                              'GrossProfitTTM','ForwardAnnualDividendYield']]
-#     row_data = row_data.reset_index(drop=True)
+def fundamental_analysis(stocks_list):
+    # Define the criteria for selecting the best performing stocks
+    min_roe = 0.10  # Minimum return on equity
+    max_pe_ratio = 20.0  # Maximum price-to-earnings ratio
+    min_operating_cash_flow_growth = 0.05  # Minimum operating cash flow growth rate
+    max_debt_equity_ratio = 0.5  # Maximum debt-to-equity ratio
     
-#     #Add Income (calculate 3yr revenue growth rate or approximation/None)
-#     rev_growth_3y = 0
-#     try:
-#         if(len(income['totalRevenue']) >= 4):
-#             rev_growth_3y = (int(income['totalRevenue'][0]) - int(income['totalRevenue'][3])) / int(income['totalRevenue'][3])
-#         else:
-#             rev_growth_3y = overview['QuarterlyRevenueGrowthYOY'] * 3
-#     except:
-#         rev_growth_3y = None
-   
-#     row_data['RevenueGrowth3Yr'] = rev_growth_3y
-        
-#     #Add Balance values, have to get matrix in correct format
-#     balance_cols = ['totalAssets','totalLiabilities','cashAndShortTermInvestments']
-#     row_data[balance_cols] = balance_val[balance_cols].iloc[0:1].reset_index(drop=True)
+    # Create a new dataframe to store the results
+    results_df = pd.DataFrame(columns=['Ticker', 'ROE', 'P/E Ratio', 'Operating Cash Flow Growth', 'Debt-to-Equity Ratio'])
+
+    # Loop through each stock in the input list
+    for ticker in stocks_list:
+        try:
+            # Pull the fundamental data for the stock using the Alpha Vantage API
+            response = requests.get(f"https://www.alphavantage.co/query?function=OVERVIEW&symbol={ticker}&apikey=SAXMJP1U7ZN7OR11")
+            data = response.json()
+            print(data)
+            # Extract the relevant fundamental data from the API response
+            roe = float(data.get('ReturnOnEquityTTM', 0))
+            pe_ratio = float(data.get('PERatioTTM', 0))
+            operating_cash_flow_growth = float(data.get('OperatingCashFlowTTM', 0)) / float(data.get('OperatingCashFlowTTM', 1))
+            debt_equity_ratio = float(data.get('DebtToEquity', 0))
+            
+            # Check if the stock meets the performance criteria
+            if roe > min_roe and pe_ratio < max_pe_ratio and operating_cash_flow_growth > min_operating_cash_flow_growth and debt_equity_ratio < max_debt_equity_ratio:
+                # Add the stock to the results dataframe
+                results_df = results_df.append({'Ticker': ticker, 'ROE': roe, 'P/E Ratio': pe_ratio, 'Operating Cash Flow Growth': operating_cash_flow_growth, 'Debt-to-Equity Ratio': debt_equity_ratio}, ignore_index=True)
+        except Exception as e:
+            # If there is an error, skip the stock and print the error message
+            print(f"Error occurred while analyzing {ticker}: {e}")
+            pass
     
-     
-#     #Add Cashflow
-#     row_data[['operatingCashflow','capitalExpenditures']] = cashflow_val[['operatingCashflow','capitalExpenditures']].iloc[0:1].reset_index(drop=True)
+    # Sort the results dataframe by ROE in descending order
+    results_df = results_df.sort_values(by='ROE', ascending=False)
     
-#     return row_data
-
-# api_key = 'DZ5VY06254N0TGHE'
-# ticker = 'TSLA'
-# url = 'https://www.alphavantage.co/query?function=OVERVIEW&symbol='+ticker+'&apikey='+api_key
-# req = requests.get(url)
-# data = req.json()
-
-# # fd = FundamentalData(key = api_key, output_format='pandas')
-# # api_data, api_meta = fd.get_company_overview(symbol = ticker)
-# # api_data.head(1)
-
-# # overview, o_meta = fd.get_company_overview(symbol = ticker)
-# # income, i_meta = fd.get_income_statement_annual(symbol = ticker)
-# # balance, b_meta = fd.get_balance_sheet_annual(symbol = ticker)
-# # cashflow, c_meta = fd.get_cash_flow_annual(symbol = ticker)
-
-# # #Create dataframe, calculate/create each row using helper function and concating to dataframe 
-# # test_table = pd.DataFrame()
-# # company_row = calc_row(overview, income, balance, cashflow)
-# # test_table = pd.concat([test_table, company_row], ignore_index=True)
-# # test_table
+    # Return the top performing stocks
+    return results_df
 
 
-# symbol = data.get("Symbol")
-# sector = data.get("Sector")
-# percent_insiders = data.get("PercentInsiders")
-# percent_institutions = data.get("PercentInstitutions")
-# market_cap = data.get("MarketCapitalization")
-# revenue_ttm = data.get("RevenueTTM")
-# return_on_assets_ttm = data.get("ReturnOnAssetsTTM")
-# ebitda = data.get("EBITDA")
-# profit_margin = data.get("ProfitMargin")
-# operating_margin_ttm = data.get("OperatingMarginTTM")
-# gross_profit_ttm = data.get("GrossProfitTTM")
-# forward_annual_dividend_yield = data.get("ForwardAnnualDividendYield")
-# revenue_growth_3yr = data.get("RevenueGrowth3Yr")
-# total_assets = data.get("totalAssets")
-# total_liabilities = data.get("totalLiabilities")
-# cash_and_short_term_investments = data.get("cashAndShortTermInvestments")
-# operating_cashflow = data.get("operatingCashflow")
-# capital_expenditures = data.get("capitalExpenditures")
+def technicalAnalysis():
+    print("technical analysis")
 
-# print("Symbol: ", symbol)
-# print("Sector: ", sector)
-# print("PercentInsiders: ", percent_insiders)
-# print("PercentInstitutions: ", percent_institutions)
-# print("MarketCapitalization: ", market_cap)
-# print("RevenueTTM: ", revenue_ttm)
-# print("ReturnOnAssetsTTM: ", return_on_assets_ttm)
-# print("EBITDA: ", ebitda)
-# print("ProfitMargin: ", profit_margin)
-# print("OperatingMarginTTM: ", operating_margin_ttm)
-# print("GrossProfitTTM: ", gross_profit_ttm)
-# print("ForwardAnnualDividendYield: ", forward_annual_dividend_yield)
-# print("RevenueGrowth3Yr: ", revenue_growth_3yr)
-# print("totalAssets: ", total_assets)
-# print("totalLiabilities: ", total_liabilities)
-# print("cashAndShortTermInvestments: ", cash_and_short_term_investments)
-# print("operatingCashflow: ", operating_cashflow)
-# print("capitalExpenditures: ", capital_expenditures) 
+stocks = ['AAPL', 'GOOG', 'TSLA', 'AMZN', 'FB']
+print(fundamental_analysis(stocks))
